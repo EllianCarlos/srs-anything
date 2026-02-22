@@ -7,7 +7,7 @@ use crate::models::{
     EmailDeliveryLog, IngestProblemInput, MagicLinkToken, NotificationPreference, ProblemCard,
     ProblemEvent, ReviewEvent, Session, User, hash_token, make_event_dedup_key,
 };
-use crate::srs::{Grade, interval_days_from_index, next_interval_index};
+use crate::srs::{Grade, SrsSchedule, next_interval_index};
 
 #[derive(Debug, Default)]
 pub struct InMemoryStore {
@@ -21,13 +21,15 @@ pub struct InMemoryStore {
     pub reviews: HashMap<i64, ReviewEvent>,
     pub notification_preferences: HashMap<i64, NotificationPreference>,
     pub email_logs: HashMap<i64, EmailDeliveryLog>,
+    pub schedule: SrsSchedule,
     dedup: HashSet<String>,
     next_id: i64,
 }
 
 impl InMemoryStore {
-    pub fn new() -> Self {
+    pub fn new_with_schedule(schedule: SrsSchedule) -> Self {
         Self {
+            schedule,
             next_id: 1,
             ..Self::default()
         }
@@ -171,8 +173,7 @@ impl InMemoryStore {
         };
 
         let interval_index = 0;
-        let next_due_at =
-            payload.occurred_at + Duration::days(interval_days_from_index(interval_index));
+        let next_due_at = payload.occurred_at + self.schedule.duration_for_index(interval_index);
         let card = ProblemCard {
             id: card_id,
             user_id: payload.user_id,
@@ -216,9 +217,9 @@ impl InMemoryStore {
             if card.user_id != user_id {
                 return None;
             }
-            card.interval_index = next_interval_index(card.interval_index, grade);
-            card.next_due_at =
-                Utc::now() + Duration::days(interval_days_from_index(card.interval_index));
+            card.interval_index =
+                next_interval_index(card.interval_index, grade, self.schedule.max_index());
+            card.next_due_at = Utc::now() + self.schedule.duration_for_index(card.interval_index);
             card.next_due_at
         };
         let review = ReviewEvent {
@@ -283,15 +284,16 @@ impl InMemoryStore {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
 
     use crate::models::{IngestProblemInput, ProblemStatus};
+    use crate::srs::{IntervalUnit, ScheduleProfile, SrsSchedule};
 
     use super::InMemoryStore;
 
     #[test]
     fn deduplicates_ingestion() {
-        let mut store = InMemoryStore::new();
+        let mut store = InMemoryStore::new_with_schedule(SrsSchedule::default());
         let user = store.get_or_create_user("a@b.com");
         let now = Utc::now();
         let first = store.ingest_event(IngestProblemInput {
@@ -317,11 +319,41 @@ mod tests {
 
     #[test]
     fn verifies_magic_link_once() {
-        let mut store = InMemoryStore::new();
+        let mut store = InMemoryStore::new_with_schedule(SrsSchedule::default());
         let user = store.get_or_create_user("a@b.com");
         let token = store.create_magic_link(user.id);
         let ok = store.verify_magic_link(&token);
         assert!(ok.is_some());
         assert!(store.verify_magic_link(&token).is_none());
+    }
+
+    #[test]
+    fn uses_injected_test_schedule_for_due_dates() {
+        let schedule = SrsSchedule::from_profile(ScheduleProfile {
+            unit: IntervalUnit::Minutes,
+            intervals: vec![1, 3, 5],
+        })
+        .expect("valid test schedule");
+        let mut store = InMemoryStore::new_with_schedule(schedule);
+        let user = store.get_or_create_user("schedule@test.com");
+        let now = Utc::now();
+
+        store.ingest_event(IngestProblemInput {
+            user_id: user.id,
+            source: "leetcode".to_owned(),
+            problem_slug: "binary-search".to_owned(),
+            title: "Binary Search".to_owned(),
+            url: "https://leetcode.com/problems/binary-search".to_owned(),
+            status: ProblemStatus::Solved,
+            occurred_at: now,
+        });
+
+        let card = store
+            .cards
+            .values()
+            .find(|item| item.problem_slug == "binary-search")
+            .expect("card created");
+        assert!(card.next_due_at >= now + Duration::minutes(1));
+        assert!(card.next_due_at < now + Duration::minutes(2));
     }
 }

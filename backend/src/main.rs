@@ -19,7 +19,7 @@ use tracing::info;
 
 use crate::{
     models::{IngestProblemInput, NotificationPreference, ProblemStatus, User},
-    srs::Grade,
+    srs::{Grade, load_schedule},
     store::InMemoryStore,
 };
 
@@ -375,8 +375,12 @@ async fn main() {
         )
         .init();
 
+    let schedule = load_schedule(
+        std::env::var("SRS_CONFIG_PATH").ok().as_deref(),
+        std::env::var("SRS_PROFILE").ok().as_deref(),
+    );
     let state = AppState {
-        store: Arc::new(Mutex::new(InMemoryStore::new())),
+        store: Arc::new(Mutex::new(InMemoryStore::new_with_schedule(schedule))),
     };
     tokio::spawn(email_digest_worker(state.clone()));
 

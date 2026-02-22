@@ -32,6 +32,8 @@
   env = {
     DATABASE_URL = "postgres://srs:srs@127.0.0.1:5432/srs_anything";
     APP_ENV = "development";
+    SRS_CONFIG_PATH = "config/srs_schedule.yaml";
+    SRS_PROFILE = "test";
     LLVM_COV = "${pkgs.llvmPackages_19.llvm}/bin/llvm-cov";
     LLVM_PROFDATA = "${pkgs.llvmPackages_19.llvm}/bin/llvm-profdata";
   };
