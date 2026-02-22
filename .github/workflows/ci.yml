@@ -11,9 +11,38 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Check push range availability
+        id: gitleaks_range
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && ! git cat-file -e "${{ github.event.before }}^{commit}" 2>/dev/null; then
+            echo "missing_before=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "missing_before=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: gitleaks/gitleaks-action@v2
+        if: steps.gitleaks_range.outputs.missing_before != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install gitleaks CLI (fallback)
+        if: steps.gitleaks_range.outputs.missing_before == 'true'
+        run: |
+          set -euo pipefail
+          version="8.24.3"
+          mkdir -p /tmp/gitleaks
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" -o /tmp/gitleaks/gitleaks.tar.gz
+          tar xz -C /tmp/gitleaks -f /tmp/gitleaks/gitleaks.tar.gz
+          sudo install -m 0755 /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks
+      - name: Run gitleaks full-history fallback
+        if: steps.gitleaks_range.outputs.missing_before == 'true'
+        run: |
+          mkdir -p coverage
+          gitleaks git --redact --exit-code 1 --report-format sarif --report-path coverage/results.sarif --log-opts="--all"
+      - name: Upload gitleaks fallback report
+        if: steps.gitleaks_range.outputs.missing_before == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-results-sarif
+          path: coverage/results.sarif
 
   backend:
     runs-on: ubuntu-latest
@@ -38,7 +67,9 @@ jobs:
       - name: Test
         run: cargo test --all-features
       - name: Coverage
-        run: cargo llvm-cov --workspace --lcov --output-path coverage/lcov.info
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov --workspace --lcov --output-path coverage/lcov.info
       - name: Upload backend coverage
         uses: actions/upload-artifact@v4
         with:
