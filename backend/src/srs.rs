@@ -19,6 +19,7 @@ pub enum Grade {
 #[serde(rename_all = "lowercase")]
 pub enum IntervalUnit {
     Days,
+    Seconds,
     Minutes,
 }
 
@@ -72,6 +73,7 @@ impl SrsSchedule {
         let value = self.profile.intervals[index.min(self.max_index())];
         match self.profile.unit {
             IntervalUnit::Days => Duration::days(value),
+            IntervalUnit::Seconds => Duration::seconds(value),
             IntervalUnit::Minutes => Duration::minutes(value),
         }
     }
@@ -150,6 +152,16 @@ mod tests {
     }
 
     #[test]
+    fn maps_profile_duration_seconds() {
+        let schedule = SrsSchedule::from_profile(ScheduleProfile {
+            unit: IntervalUnit::Seconds,
+            intervals: vec![1, 3, 5],
+        })
+        .expect("valid schedule");
+        assert_eq!(schedule.duration_for_index(2).num_seconds(), 5);
+    }
+
+    #[test]
     fn resolves_schedule_from_yaml_file() {
         let mut profiles = HashMap::new();
         profiles.insert(
@@ -162,7 +174,7 @@ mod tests {
         profiles.insert(
             "test".to_owned(),
             ScheduleProfile {
-                unit: IntervalUnit::Minutes,
+                unit: IntervalUnit::Seconds,
                 intervals: vec![1, 3, 5],
             },
         );
@@ -175,7 +187,7 @@ mod tests {
         fs::write(&path, yaml).expect("write schedule file");
 
         let test_profile = load_schedule(path.to_str(), Some("test"));
-        assert_eq!(test_profile.duration_for_index(2).num_minutes(), 5);
+        assert_eq!(test_profile.duration_for_index(2).num_seconds(), 5);
 
         let default_profile = load_schedule(path.to_str(), None);
         assert_eq!(default_profile.duration_for_index(2).num_days(), 7);

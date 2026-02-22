@@ -1,25 +1,27 @@
-import { getSessionToken } from '../auth';
-import type { Dashboard, Integrations, ProblemCard, ReviewEvent, Settings, User } from './types';
+import type {
+  CreateIntegrationTokenPayload,
+  CreateIntegrationTokenResponse,
+  Dashboard,
+  Integrations,
+  ProblemCard,
+  ReviewEvent,
+  Settings,
+  User,
+} from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000';
 
 type JsonValue = Record<string, unknown>;
 
-const headers = (): HeadersInit => {
-  const token = getSessionToken();
-  const base: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    base.Authorization = `Bearer ${token}`;
-  }
-  return base;
-};
-
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
+  const mergedHeaders = new Headers(init?.headers);
+  if (!mergedHeaders.has('Content-Type')) {
+    mergedHeaders.set('Content-Type', 'application/json');
+  }
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: headers(),
+    credentials: 'include',
+    headers: mergedHeaders,
   });
   if (!response.ok) {
     const text = await response.text();
@@ -38,7 +40,7 @@ export const api = {
       body: JSON.stringify({ email } as JsonValue),
     }),
   verifyMagicLink: (token: string) =>
-    request<{ session_token: string; user: User }>('/auth/verify-magic-link', {
+    request<{ user: User }>('/auth/verify-magic-link', {
       method: 'POST',
       body: JSON.stringify({ token } as JsonValue),
     }),
@@ -59,4 +61,13 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   integrations: () => request<Integrations>('/integrations'),
+  createIntegrationToken: (payload: CreateIntegrationTokenPayload) =>
+    request<CreateIntegrationTokenResponse>('/integrations/tokens', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  revokeIntegrationToken: (tokenId: number) =>
+    request<void>(`/integrations/tokens/${tokenId}`, {
+      method: 'DELETE',
+    }),
 };

@@ -1,21 +1,56 @@
-import { List, Text } from '@mantine/core';
-import { useQuery } from '@tanstack/react-query';
+import { Alert, Button, Group, List, Stack, Table, Text, TextInput } from '@mantine/core';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { api } from '../api/client';
 import { ErrorState, LoadingState } from '../components/ui/AsyncState';
 import { PageLayout, SectionCard } from '../components/ui/PageLayout';
 
+const isLocalDev = (): boolean =>
+  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+const postTokenToTampermonkey = (token: string): void => {
+  const payload = {
+    source: 'srs-anything',
+    type: 'SRS_API_TOKEN_CREATED',
+    token,
+  };
+  if (isLocalDev()) {
+    console.info('[srs-anything] sending token to tampermonkey bridge', {
+      origin: window.location.origin,
+      tokenPreview: `${token.slice(0, 8)}...`,
+      tokenLength: token.length,
+    });
+  }
+  window.postMessage(payload, window.location.origin);
+};
+
 export const IntegrationsPage = () => {
+  const [label, setLabel] = useState('Default token');
+  const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: ['integrations'],
     queryFn: api.integrations,
   });
+  const createTokenMutation = useMutation({
+    mutationFn: api.createIntegrationToken,
+    onSuccess: (payload) => {
+      postTokenToTampermonkey(payload.token);
+      queryClient.invalidateQueries({ queryKey: ['integrations'] }).catch(() => undefined);
+    },
+  });
+  const revokeTokenMutation = useMutation({
+    mutationFn: api.revokeIntegrationToken,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['integrations'] }).catch(() => undefined);
+    },
+  });
 
   if (isLoading) return <LoadingState message="Loading integrations..." />;
   if (isError || !data) return <ErrorState message="Could not load integrations." />;
-  const sessionTokenSetup = data.session_token_setup ?? [
-    'Use the real app session token (not a placeholder)',
-    'After login + verify, copy localStorage.srs_session_token from the SRS app tab',
-    'Set the same value in LeetCode/NeetCode localStorage.srs_session_token',
+  const apiTokenSetup = data.api_token_setup ?? [
+    'Create an API token from this page.',
+    'Use Send to Tampermonkey to hand off token to userscript storage.',
+    'Tampermonkey will use X-API-Key for ingestion.',
   ];
 
   return (
@@ -30,12 +65,71 @@ export const IntegrationsPage = () => {
           ))}
         </List>
       </SectionCard>
-      <SectionCard title="Session token setup">
+      <SectionCard title="API token setup">
         <List spacing="xs" type="ordered">
-          {sessionTokenSetup.map((line) => (
+          {apiTokenSetup.map((line) => (
             <List.Item key={line}>{line}</List.Item>
           ))}
         </List>
+      </SectionCard>
+      <SectionCard title="API token manager">
+        <Stack>
+          <TextInput label="Token label" value={label} onChange={(event) => setLabel(event.currentTarget.value)} />
+          <Group>
+            <Button
+              onClick={() => createTokenMutation.mutate({ label, expires_in_days: 365 })}
+              loading={createTokenMutation.isPending}
+            >
+              Create token
+            </Button>
+            <Button
+              variant="light"
+              onClick={() => {
+                const token = createTokenMutation.data?.token;
+                if (!token) return;
+                postTokenToTampermonkey(token);
+              }}
+              disabled={!createTokenMutation.data?.token}
+            >
+              Send to Tampermonkey
+            </Button>
+          </Group>
+          {createTokenMutation.isError ? <Alert color="red">Failed to create API token.</Alert> : null}
+          {createTokenMutation.isSuccess ? (
+            <Alert color="green">API token created and sent to Tampermonkey bridge.</Alert>
+          ) : null}
+          <Table>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Label</Table.Th>
+                <Table.Th>Scope</Table.Th>
+                <Table.Th>Status</Table.Th>
+                <Table.Th />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {data.tokens.map((token) => (
+                <Table.Tr key={token.id}>
+                  <Table.Td>{token.label}</Table.Td>
+                  <Table.Td>{token.scopes.join(', ')}</Table.Td>
+                  <Table.Td>{token.revoked_at ? 'revoked' : 'active'}</Table.Td>
+                  <Table.Td>
+                    <Button
+                      size="xs"
+                      color="red"
+                      variant="subtle"
+                      disabled={Boolean(token.revoked_at)}
+                      loading={revokeTokenMutation.isPending}
+                      onClick={() => revokeTokenMutation.mutate(token.id)}
+                    >
+                      Revoke
+                    </Button>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Stack>
       </SectionCard>
       <SectionCard title="Latest received event">
         <Text c="dimmed">

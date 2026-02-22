@@ -1,6 +1,8 @@
-import { AppShell, Badge, Burger, Group, NavLink, Stack, Text } from '@mantine/core';
+import { AppShell, Badge, Burger, Button, Group, NavLink, Stack, Text } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { Link, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { api } from '../api/client';
 
 type LinkItem = { to: string; label: string };
 
@@ -21,6 +23,8 @@ export const AppShellLayout = ({
 }) => {
   const [opened, { toggle }] = useDisclosure();
   const location = useLocation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   return (
     <AppShell
@@ -37,6 +41,18 @@ export const AppShellLayout = ({
           <Badge color="blue" variant="filled">
             Due {dueCount}
           </Badge>
+          <Button
+            variant="subtle"
+            color="red"
+            size="xs"
+            onClick={async () => {
+              await api.logout().catch(() => undefined);
+              queryClient.clear();
+              navigate('/login', { replace: true });
+            }}
+          >
+            Logout
+          </Button>
         </Group>
       </AppShell.Header>
       <AppShell.Navbar p="sm">

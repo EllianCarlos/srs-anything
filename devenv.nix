@@ -1,7 +1,10 @@
 { pkgs, ... }:
 {
+  dotenv.enable = true;
+
   packages = [
     pkgs.git
+    pkgs.gitleaks
     pkgs.openssl
     pkgs.pkg-config
     pkgs.cargo-llvm-cov
@@ -21,19 +24,30 @@
 
   services.postgres = {
     enable = true;
+    port = 5433;
     listen_addresses = "127.0.0.1";
-    initialDatabases = [{ name = "srs_anything"; }];
-    initialScript = ''
-      CREATE USER srs WITH PASSWORD 'srs';
-      GRANT ALL PRIVILEGES ON DATABASE srs_anything TO srs;
-    '';
+    initialDatabases = [
+      {
+        name = "srs_anything";
+        user = "srs";
+        pass = "srs";
+        initialSQL = ''
+          GRANT USAGE, CREATE ON SCHEMA public TO srs;
+        '';
+      }
+    ];
   };
 
   env = {
-    DATABASE_URL = "postgres://srs:srs@127.0.0.1:5432/srs_anything";
+    DATABASE_URL = "postgres://srs:srs@127.0.0.1:5433/srs_anything";
     APP_ENV = "development";
     SRS_CONFIG_PATH = "config/srs_schedule.yaml";
     SRS_PROFILE = "test";
+    JWT_ISSUER = "srs-anything";
+    JWT_AUDIENCE = "srs-anything-web";
+    JWT_EXPIRATION_SECS = "2592000";
+    COOKIE_SECURE = "false";
+    ALLOWED_ORIGINS = "http://localhost:5173";
     LLVM_COV = "${pkgs.llvmPackages_19.llvm}/bin/llvm-cov";
     LLVM_PROFDATA = "${pkgs.llvmPackages_19.llvm}/bin/llvm-profdata";
   };
@@ -70,9 +84,15 @@
     fi
   '';
 
+  scripts.secrets.exec = ''
+    set -euo pipefail
+    gitleaks git --verbose .
+  '';
+
   scripts.ci-local.exec = ''
     set -euo pipefail
     lint
+    secrets
     test
     coverage
   '';

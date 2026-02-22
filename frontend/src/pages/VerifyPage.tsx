@@ -3,7 +3,6 @@ import { useMutation } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
-import { setSessionToken } from '../auth';
 
 export const VerifyPage = () => {
   const [searchParams] = useSearchParams();
@@ -11,8 +10,7 @@ export const VerifyPage = () => {
   const token = searchParams.get('token') ?? '';
   const mutation = useMutation({
     mutationFn: api.verifyMagicLink,
-    onSuccess: (data) => {
-      setSessionToken(data.session_token);
+    onSuccess: () => {
       navigate('/', { replace: true });
     },
   });

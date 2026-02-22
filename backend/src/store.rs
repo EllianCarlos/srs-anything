@@ -4,8 +4,8 @@ use chrono::{DateTime, Duration, Utc};
 use rand::{Rng, distr::Alphanumeric};
 
 use crate::models::{
-    EmailDeliveryLog, IngestProblemInput, MagicLinkToken, NotificationPreference, ProblemCard,
-    ProblemEvent, ReviewEvent, Session, User, hash_token, make_event_dedup_key,
+    EmailDeliveryLog, IngestProblemInput, IntegrationToken, MagicLinkToken, NotificationPreference,
+    ProblemCard, ProblemEvent, ReviewEvent, Session, User, hash_token, make_event_dedup_key,
 };
 use crate::srs::{Grade, SrsSchedule, next_interval_index};
 
@@ -15,6 +15,7 @@ pub struct InMemoryStore {
     pub users_by_email: HashMap<String, i64>,
     pub magic_tokens: HashMap<i64, MagicLinkToken>,
     pub sessions: HashMap<i64, Session>,
+    pub integration_tokens: HashMap<i64, IntegrationToken>,
     pub events: HashMap<i64, ProblemEvent>,
     pub cards: HashMap<i64, ProblemCard>,
     pub card_index: HashMap<String, i64>,
@@ -63,6 +64,13 @@ impl InMemoryStore {
         user
     }
 
+    pub fn get_user_by_email(&self, email: &str) -> Option<User> {
+        self.users_by_email
+            .get(email)
+            .and_then(|user_id| self.users.get(user_id))
+            .cloned()
+    }
+
     pub fn create_magic_link(&mut self, user_id: i64) -> String {
         let token: String = rand::rng()
             .sample_iter(&Alphanumeric)
@@ -80,7 +88,7 @@ impl InMemoryStore {
         token
     }
 
-    pub fn verify_magic_link(&mut self, token: &str) -> Option<(User, String)> {
+    pub fn verify_magic_link(&mut self, token: &str) -> Option<User> {
         let token_hash = hash_token(token);
         let now = Utc::now();
         let token_id = self.magic_tokens.iter().find_map(|(id, rec)| {
@@ -91,22 +99,7 @@ impl InMemoryStore {
         if let Some(rec) = self.magic_tokens.get_mut(&token_id) {
             rec.consumed_at = Some(now);
         }
-        let session_token: String = rand::rng()
-            .sample_iter(&Alphanumeric)
-            .take(48)
-            .map(char::from)
-            .collect();
-        let session = Session {
-            id: self.new_id(),
-            user_id,
-            session_token_hash: hash_token(&session_token),
-            expires_at: now + Duration::days(30),
-        };
-        self.sessions.insert(session.id, session);
-        self.users
-            .get(&user_id)
-            .cloned()
-            .map(|user| (user, session_token))
+        self.users.get(&user_id).cloned()
     }
 
     pub fn user_from_session(&self, bearer_token: &str) -> Option<User> {
@@ -127,6 +120,74 @@ impl InMemoryStore {
             .find_map(|(id, session)| (session.session_token_hash == token_hash).then_some(*id));
         if let Some(id) = to_remove {
             self.sessions.remove(&id);
+        }
+    }
+
+    pub fn create_integration_token(
+        &mut self,
+        user_id: i64,
+        token_hash: String,
+        label: String,
+        scopes: Vec<String>,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> IntegrationToken {
+        let token = IntegrationToken {
+            id: self.new_id(),
+            user_id,
+            token_hash,
+            label,
+            scopes,
+            created_at: Utc::now(),
+            expires_at,
+            revoked_at: None,
+            last_used_at: None,
+        };
+        self.integration_tokens.insert(token.id, token.clone());
+        token
+    }
+
+    pub fn list_integration_tokens(&self, user_id: i64) -> Vec<IntegrationToken> {
+        let mut tokens: Vec<_> = self
+            .integration_tokens
+            .values()
+            .filter(|token| token.user_id == user_id)
+            .cloned()
+            .collect();
+        tokens.sort_by_key(|token| std::cmp::Reverse(token.created_at));
+        tokens
+    }
+
+    pub fn revoke_integration_token(&mut self, user_id: i64, token_id: i64) -> bool {
+        let Some(token) = self.integration_tokens.get_mut(&token_id) else {
+            return false;
+        };
+        if token.user_id != user_id || token.revoked_at.is_some() {
+            return false;
+        }
+        token.revoked_at = Some(Utc::now());
+        true
+    }
+
+    pub fn user_from_integration_token(&self, token_hash: &str) -> Option<User> {
+        let now = Utc::now();
+        let user_id = self.integration_tokens.values().find_map(|token| {
+            let not_expired = token
+                .expires_at
+                .map(|expires| expires > now)
+                .unwrap_or(true);
+            (token.token_hash == token_hash && token.revoked_at.is_none() && not_expired)
+                .then_some(token.user_id)
+        })?;
+        self.users.get(&user_id).cloned()
+    }
+
+    pub fn touch_integration_token_usage(&mut self, token_hash: &str) {
+        if let Some(token) = self
+            .integration_tokens
+            .values_mut()
+            .find(|token| token.token_hash == token_hash)
+        {
+            token.last_used_at = Some(Utc::now());
         }
     }
 

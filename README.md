@@ -18,9 +18,17 @@ Rust backend + React frontend to track LeetCode/NeetCode activity and schedule s
 3. Start the frontend:
    - `devenv shell -- sh -c "cd frontend && npm run dev"`
 
+## Local secrets
+
+- `devenv` loads `.env` automatically (`dotenv.enable = true` in `devenv.nix`).
+- Copy `.env.example` to `.env` and set a strong local `JWT_SECRET`.
+- `.env` / `.env.local` are gitignored and must never be committed.
+- CI must define `JWT_SECRET` in repository secrets because backend runs with `SRS_PROFILE=prod`.
+
 ## Quality gates
 
 - Lint: `devenv shell -- lint`
+- Secrets: `devenv shell -- secrets`
 - Tests: `devenv shell -- test`
 - Coverage: `devenv shell -- coverage`
 
@@ -49,15 +57,16 @@ Local `devenv` defaults to `SRS_PROFILE=test` for faster review loops, while CI 
 1. Open frontend at `http://localhost:5173/login`.
 2. Enter email and request magic link.
 3. Use generated dev token to open verify page.
-4. Session token is stored in browser localStorage.
+4. Backend verifies token and sets `srs_auth` HttpOnly cookie.
 
 ## Collaborative LeetCode validation checklist
 
-This step requires your real account session:
+This step requires your app login session and one API token:
 
 1. Login to LeetCode in your browser.
 2. Install `tampermonkey/leetcode-neetcode.user.js`.
-3. Copy the real `srs_session_token` from the SRS app tab (after `/verify`) into LeetCode/NeetCode localStorage.
-4. Do not use any placeholder or hint token shown on integrations pages as auth.
-5. Open/solve a problem page.
-6. Confirm event appears on `/integrations` and dashboard latest ingestion card.
+3. Open `/integrations` and create an integration API token.
+4. Use `Send to Tampermonkey` to bridge token into userscript storage (`GM_setValue`).
+5. Do not use app cookie/session auth for ingestion requests.
+6. Open/solve a problem page.
+7. Confirm event appears on `/integrations` and dashboard latest ingestion card.

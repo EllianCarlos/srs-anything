@@ -50,7 +50,28 @@ export type Settings = {
 };
 
 export type Integrations = {
-  session_token_setup: string[];
+  api_token_setup: string[];
   latest_event: ProblemEvent | null;
   checklist: string[];
+  tokens: IntegrationTokenSummary[];
+};
+
+export type IntegrationTokenSummary = {
+  id: number;
+  label: string;
+  scopes: string[];
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  last_used_at: string | null;
+};
+
+export type CreateIntegrationTokenPayload = {
+  label: string;
+  expires_in_days?: number;
+};
+
+export type CreateIntegrationTokenResponse = {
+  token: string;
+  token_summary: IntegrationTokenSummary;
 };

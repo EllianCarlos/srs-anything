@@ -1,14 +1,14 @@
 import { Alert, Button, NumberInput, Stack, Switch } from '@mantine/core';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import { clearSessionToken } from '../auth';
 import { ErrorState, LoadingState } from '../components/ui/AsyncState';
 import { PageLayout, SectionCard } from '../components/ui/PageLayout';
 
 export const SettingsPage = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: ['settings'],
     queryFn: api.settings,
@@ -68,7 +68,7 @@ export const SettingsPage = () => {
         color="red"
         onClick={async () => {
           await api.logout().catch(() => undefined);
-          clearSessionToken();
+          queryClient.clear();
           navigate('/login', { replace: true });
         }}
       >
