@@ -1,0 +1,68 @@
+-- MVP schema uses bigint IDs (no UUIDs).
+CREATE TABLE IF NOT EXISTS users (
+  id BIGSERIAL PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS magic_link_tokens (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  session_token_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS problem_events (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source TEXT NOT NULL,
+  problem_slug TEXT NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  status TEXT NOT NULL,
+  occurred_at TIMESTAMPTZ NOT NULL,
+  dedup_key TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS problem_cards (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source TEXT NOT NULL,
+  problem_slug TEXT NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  interval_index INTEGER NOT NULL,
+  next_due_at TIMESTAMPTZ NOT NULL,
+  UNIQUE (user_id, source, problem_slug)
+);
+
+CREATE TABLE IF NOT EXISTS review_events (
+  id BIGSERIAL PRIMARY KEY,
+  card_id BIGINT NOT NULL REFERENCES problem_cards(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  grade TEXT NOT NULL,
+  reviewed_at TIMESTAMPTZ NOT NULL,
+  next_due_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  email_enabled BOOLEAN NOT NULL DEFAULT true,
+  digest_hour_utc INTEGER NOT NULL DEFAULT 12
+);
+
+CREATE TABLE IF NOT EXISTS email_delivery_logs (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL
+);
